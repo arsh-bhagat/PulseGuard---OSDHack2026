@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+*.pyc
+anomaly_log.json
+audit.log
+.DS_Store
