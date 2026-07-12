@@ -76,6 +76,26 @@ This spikes CPU usage across all cores, which will trigger the rule-based backst
 **4. Check the audit trail:**
 `audit.log` records every read of the model and stats files, and `anomaly_log.json` records every detected anomaly with a timestamp, trigger type, score, and the raw metrics that caused it.
 
+## Training on Your Own Machine (Optional)
+
+PulseGuard ships pre-trained on the author's machine — you can run it as-is with no setup beyond the steps above. However, since the model's baseline reflects one specific machine's "normal" behavior (see Limitations below), detection accuracy will be more meaningful if you retrain it on your own system. This is optional, not required to try the tool.
+
+**1. Collect your own baseline data:**
+```bash
+python psutillogger.py
+```
+Let this run in the background while you use your machine normally — browsing, coding, whatever your typical workload looks like. **Let it run for at least 15 minutes, ideally 30+ minutes**, so the model sees a reasonably representative slice of normal behavior rather than a narrow snapshot. Stop it with `Ctrl+C` when done — this produces a fresh `metrics.csv`.
+
+> Note: `psutillogger.py` overwrites `metrics.csv` each time it's run (not append mode), so a single run gives you a clean dataset rather than one mixed with old data.
+
+**2. Retrain and export the model:**
+The training step (Isolation Forest fit + ONNX export) was done in a Colab notebook, not as a local script in this repo. Upload your new `metrics.csv` to the same notebook flow used to produce the original model, run it through, and download the resulting `anomaly_detector.onnx` and `stats.json`.
+
+**3. Replace the files:**
+Drop your new `anomaly_detector.onnx` and `stats.json` into the project root, replacing the originals. PulseGuard will pick them up automatically on the next run — no code changes needed.
+
+If you skip this section entirely, PulseGuard still runs fine — it'll just be evaluating your machine's metrics against the author's baseline rather than your own, which may produce less accurate (or more false-positive-prone) results.
+
 ## Demo Video
 
 <!-- To be added: link to a 2–5 minute walkthrough showing the dashboard, a live-triggered anomaly via stress_test.py, and a run with network access disabled. -->
