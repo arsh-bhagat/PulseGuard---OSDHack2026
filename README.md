@@ -43,6 +43,8 @@ Every anomaly is logged with which mechanism triggered it, so the tool's behavio
 
 No cloud services are used anywhere in this project — model training was done locally/in a notebook as a one-time offline step, and the exported model file is committed as a static artifact.
 
+**Note on `psutillogger.py`:** this is the one-time data collection script used to build `metrics.csv`, the training data behind `anomaly_detector.onnx` and `stats.json`. It's not part of the live monitoring pipeline — it's included in the repo for transparency/reproducibility, so anyone can see exactly how the training data was generated.
+
 ## Setup Instructions
 
 **Requirements:** Python 3.8+
@@ -90,7 +92,7 @@ MIT License — see [LICENSE](./LICENSE) for details.
 
 ## Known Limitations & Future Scope
 
-- The model's baseline was trained on one machine's normal usage pattern. Thresholds and learned behavior may not generalize well to significantly different hardware or workloads without retraining.
+- The model's baseline is intentionally trained on a single machine's normal usage pattern, not pooled across multiple devices. This is a deliberate design choice, not an oversight — "normal" CPU/RAM/I/O behavior varies significantly between machines (hardware, OS, workload), so merging data from a different device would blur the baseline rather than improve it. Each deployment of PulseGuard is meant to be trained on the specific machine it will monitor. Retraining on a new machine takes only a few minutes using the included `psutillogger.py` script.
 - Currently supports a fixed set of six metrics (CPU, RAM, disk read/write, network sent/recv). Extending to additional metrics (per-process usage, temperature, GPU load) is a natural next step.
 - No persistent metric history is stored beyond the in-memory sliding window and the anomaly log — a longer-term local time-series store could enable trend analysis, not just point-in-time flagging.
 - Currently runs as a single-machine monitor. A lightweight local-network mode for monitoring a small cluster of air-gapped machines (still without any external cloud dependency) is a possible extension.
