@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PulseGuard Dashboard</title>
+    <!-- Use local Chart.js to avoid outbound network calls -->
+    <script src="/static/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #e0e0e0;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 {
+            color: #fff;
+            text-align: center;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .panel {
+            background-color: #1e1e1e;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        canvas {
+            max-height: 400px;
+        }
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .info-card {
+            background-color: #2c2c2c;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .info-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: #aaa;
+        }
+        .info-card p {
+            margin: 0;
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #fff;
+        }
+        .anomalies-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .anomalies-list li {
+            padding: 10px;
+            border-bottom: 1px solid #444;
+            display: flex;
+            justify-content: space-between;
+        }
+        .anomalies-list li:last-child {
+            border-bottom: none;
+        }
+        .badge {
+            background-color: #ff4444;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .btn {
+            background-color: #444;
+            color: #fff;
+            border: 1px solid #555;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        .btn:hover {
+            background-color: #555;
+        }
+        .btn-danger {
+            background-color: #a83232;
+            border-color: #b53838;
+        }
+        .btn-danger:hover {
+            background-color: #c93b3b;
+        }
+    </style>
+</head>
+<body>
+    <h1>PulseGuard Dashboard</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Live System Metrics</h2>
+            <canvas id="metricsChart"></canvas>
+        </div>
+
+        <div class="info-grid">
+            <div class="panel">
+                <h2>Model Info</h2>
+                <div class="info-card" style="margin-bottom: 15px;">
+                    <h3>Model File Size (ONNX)</h3>
+                    <p id="modelSize">-- MB</p>
+                </div>
+                <div class="info-card">
+                    <h3>Inference Latency</h3>
+                    <p id="modelLatency">-- ms</p>
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-header">
+                    <h2>Recent Anomalies</h2>
+                    <div>
+                        <button class="btn" onclick="clearUILogs()">Clear UI Logs</button>
+                        <button class="btn btn-danger" onclick="deleteAllLogs()">Delete All Logs</button>
+                    </div>
+                </div>
+                <ul class="anomalies-list" id="anomaliesList">
+                    <!-- Populated by JS -->
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ctx = document.getElementById('metricsChart').getContext('2d');
+        const MAX_POINTS = 30; // 30 readings roughly matches our window
+
+        const metricsChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        label: 'CPU %',
+                        data: [],
+                        borderColor: '#42a5f5',
+                        backgroundColor: 'rgba(66, 165, 245, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3
+                    },
+                    {
+                        label: 'RAM %',
+                        data: [],
+                        borderColor: '#66bb6a',
+                        backgroundColor: 'rgba(102, 187, 106, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: {
+                            color: '#333'
+                        }
+                    },
+                    x: {
+                        grid: {
+                            color: '#333'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: {
+                            color: '#e0e0e0'
+                        }
+                    }
+                }
+            }
+        });
+
+        let hiddenBefore = 0;
+
+        function clearUILogs() {
+            hiddenBefore = Date.now();
+            updateDashboard();
+        }
+
+        async function deleteAllLogs() {
+            if (!confirm("Are you sure you want to permanently delete all anomaly logs?")) return;
+            try {
+                await fetch('/api/clear_logs', { method: 'POST' });
+                hiddenBefore = 0; // reset
+                updateDashboard();
+            } catch (e) {
+                console.error("Failed to delete logs", e);
+            }
+        }
+
+        async function updateDashboard() {
+            try {
+                // Fetch metrics
+                const resMetrics = await fetch('/api/metrics');
+                const dataMetrics = await resMetrics.json();
+                
+                if (dataMetrics.metrics) {
+                    const timeLabel = new Date().toLocaleTimeString();
+                    
+                    metricsChart.data.labels.push(timeLabel);
+                    metricsChart.data.datasets[0].data.push(dataMetrics.metrics.cpu);
+                    metricsChart.data.datasets[1].data.push(dataMetrics.metrics.ram);
+
+                    // Add red marker if anomalous
+                    const pointColorCPU = dataMetrics.anomaly ? '#ff4444' : '#42a5f5';
+                    const pointRadiusCPU = dataMetrics.anomaly ? 6 : 3;
+                    
+                    if (!metricsChart.data.datasets[0].pointBackgroundColor) {
+                        metricsChart.data.datasets[0].pointBackgroundColor = [];
+                        metricsChart.data.datasets[0].pointRadius = [];
+                        metricsChart.data.datasets[1].pointBackgroundColor = [];
+                        metricsChart.data.datasets[1].pointRadius = [];
+                    }
+
+                    metricsChart.data.datasets[0].pointBackgroundColor.push(pointColorCPU);
+                    metricsChart.data.datasets[0].pointRadius.push(pointRadiusCPU);
+                    metricsChart.data.datasets[1].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#66bb6a');
+                    metricsChart.data.datasets[1].pointRadius.push(pointRadiusCPU);
+
+                    // Keep window size
+                    if (metricsChart.data.labels.length > MAX_POINTS) {
+                        metricsChart.data.labels.shift();
+                        metricsChart.data.datasets[0].data.shift();
+                        metricsChart.data.datasets[1].data.shift();
+                        metricsChart.data.datasets[0].pointBackgroundColor.shift();
+                        metricsChart.data.datasets[0].pointRadius.shift();
+                        metricsChart.data.datasets[1].pointBackgroundColor.shift();
+                        metricsChart.data.datasets[1].pointRadius.shift();
+                    }
+
+                    metricsChart.update();
+                }
+
+                // Fetch model info
+                const resInfo = await fetch('/api/model_info');
+                const dataInfo = await resInfo.json();
+                
+                document.getElementById('modelSize').innerText = `${dataInfo.size_mb} MB`;
+                document.getElementById('modelLatency').innerText = `${dataInfo.latency_ms} ms`;
+                
+                const list = document.getElementById('anomaliesList');
+                list.innerHTML = '';
+                
+                let visibleAnomalies = [];
+                if (dataInfo.recent_anomalies) {
+                    visibleAnomalies = dataInfo.recent_anomalies.filter(a => {
+                        return new Date(a.timestamp).getTime() >= hiddenBefore;
+                    });
+                }
+
+                if (visibleAnomalies.length > 0) {
+                    let lastDate = '';
+                    visibleAnomalies.forEach(a => {
+                        const d = new Date(a.timestamp);
+                        const dateStr = d.toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' });
+                        
+                        if (dateStr !== lastDate) {
+                            const headerLi = document.createElement('li');
+                            headerLi.style = "background-color: #333; font-weight: bold; padding: 5px 10px; margin-top: 5px; border-bottom: none;";
+                            headerLi.innerText = dateStr;
+                            list.appendChild(headerLi);
+                            lastDate = dateStr;
+                        }
+
+                        const li = document.createElement('li');
+                        const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                        const isRule = a.trigger === 'rule-based-backstop';
+                        li.innerHTML = `
+                            <span>
+                                <strong>${timeStr}</strong> 
+                                <br>
+                                <small style="color:#888;">CPU: ${a.metrics.cpu.toFixed(1)}%, RAM: ${a.metrics.ram.toFixed(1)}%</small>
+                            </span>
+                            <span class="badge" style="background-color: ${isRule ? '#ff9800' : '#ff4444'}">
+                                ${isRule ? 'RULE' : 'MODEL'}
+                            </span>
+                        `;
+                        list.appendChild(li);
+                    });
+                } else {
+                    list.innerHTML = '<li style="color:#888; justify-content:center;">No anomalies detected yet.</li>';
+                }
+
+            } catch (err) {
+                console.error("Failed to fetch dashboard data", err);
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>
