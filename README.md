@@ -1,10 +1,7 @@
 # PulseGuard 🛡️
-
 **Offline-first anomaly detection for critical systems**
 
-PulseGuard is a lightweight, local-first Python application that monitors live system metrics — CPU, RAM, disk I/O, and network I/O — and flags anomalous behavior in real time. It runs its AI model entirely offline, with zero outbound network calls, making it suitable for air-gapped, regulated, or privacy-sensitive environments where sending system data to a cloud monitoring service isn't an option.
-
-Built for **OSDHack 2026** (theme: On Device AI).
+PulseGuard is a lightweight, local-first Python application that monitors live system metrics — CPU, RAM, disk I/O, and network I/O and flags anomalous behavior in real time. It runs its AI model entirely offline, with zero outbound network calls, making it suitable for air-gapped, regulated, or privacy sensitive environments where sending system data to a cloud monitoring service isn't an option.
 
 ---
 
@@ -27,7 +24,7 @@ Every flagged anomaly is also classified by **severity** (low/medium/high) and i
 - **Format**: Exported to ONNX (`.onnx`) via `skl2onnx`.
 - **Runtime**: [ONNX Runtime](https://onnxruntime.ai/) with `CPUExecutionProvider` — no GPU required.
 - **Where it runs**: Entirely on the local machine being monitored. Inference happens in-process, on every polling cycle, with no network call involved. A startup self-test verifies the model can be loaded and parsed correctly before the monitoring loop begins.
-- **Why local**: The core anomaly detection can never depend on network access — that's the entire point. If the device is offline, air-gapped, or the network is down, PulseGuard keeps working exactly the same.
+- **Why local**: The core anomaly detection can never depend on network access, that's the entire point. If the device is offline, air-gapped, or the network is down, PulseGuard keeps working exactly the same.
 
 ## Tech Stack
 
@@ -122,4 +119,4 @@ MIT License — see [LICENSE](./LICENSE) for details.
 - Currently supports a fixed set of six metrics (CPU, RAM, disk read/write, network sent/recv). Extending to additional metrics (per-process usage, temperature, GPU load) is a natural next step.
 - No persistent metric history is stored beyond the in-memory sliding window and the anomaly log — a longer-term local time-series store could enable trend analysis, not just point-in-time flagging.
 - Currently runs as a single-machine monitor. A lightweight local-network mode for monitoring a small cluster of air-gapped machines (still without any external cloud dependency) is a possible extension.
-- Planned: an optional embedded/hardware alert (e.g. an Arduino-driven buzzer or LED) that fires on high-severity anomalies, for environments without someone actively watching a screen.
+
