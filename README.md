@@ -12,6 +12,15 @@ Built for **OSDHack 2026** (theme: On Device AI).
 
 Most system monitoring and anomaly detection tools rely on cloud-based dashboards or APIs — Datadog, cloud SIEM tools, hosted APM services. That's a non-starter in environments where system telemetry can't leave the machine: banking infrastructure, defense networks, healthcare systems, or any air-gapped setup. Teams in these environments are often left with basic threshold alerts or manual log-watching, with no access to the kind of pattern-based anomaly detection that cloud tools offer.
 
+## ⚡ Key Features
+
+- **True Offline AI**: Uses `onnxruntime` to evaluate system states locally. No external APIs, no cloud processing.
+- **Hybrid Detection Engine**: Combines the nuance of a Machine Learning model (trained on baseline hardware behavior) with a strict rule-based backstop (flags usage > 95%) to eliminate missed critical spikes.
+- **Explainability & Severity Tiers**: Automatically computes Z-scores to pinpoint which metrics are causing the anomaly. Classifies events into LOW, MEDIUM, and HIGH severity.
+- **Live Local Dashboard**: A fast, Flask-based UI serving Chart.js visualizations (including secondary axes for Network I/O) strictly over `127.0.0.1`. Features date-based log browsing and a local Web Audio API siren alert.
+- **Absolute Privacy**: Bundles all frontend assets locally. Zero external CDNs, DNS lookups, or telemetry.
+- **Audit-Ready**: Transparently logs all AI model and configuration reads to a local `audit.log`.
+
 ## Solution Overview
 
 PulseGuard runs a small, pre-trained anomaly detection model directly on the device being monitored. It continuously polls system metrics, evaluates them against a trained baseline of "normal" behavior for that machine, and flags anomalies using two independent mechanisms:
@@ -28,6 +37,30 @@ Every anomaly is logged with which mechanism triggered it, so the tool's behavio
 - **Runtime**: [ONNX Runtime](https://onnxruntime.ai/) with `CPUExecutionProvider` — no GPU required.
 - **Where it runs**: Entirely on the local machine being monitored. Inference happens in-process, on every polling cycle, with no network call involved.
 - **Why local**: The core anomaly detection can never depend on network access — that's the entire point. If the device is offline, air-gapped, or the network is down, PulseGuard keeps working exactly the same.
+
+## 🏗️ Technical Architecture
+
+- **Metric Collector (`src/pulseguard_core.py`)**: Uses `psutil` to poll deltas across 6 dimensions every 2 seconds, maintaining a 30-step sliding window. 
+- **Inference Engine**: Normalizes the incoming window using baseline statistics (`stats.json`), then passes it through `anomaly_detector.onnx`. It includes a self-test at startup to ensure the runtime is sound. A custom aggregation algorithm analyzes the window to prevent single-point noise from triggering false alarms.
+- **Local Dashboard (`src/app.py`)**: A decoupled Flask server exposes a localized REST API, rendering real-time metrics, severities, and date-filtered historical flags without any external network dependency.
+
+## 📊 False Positive Evaluation
+Want to prove the model's reliability? You can run the included baseline evaluation script passively for any duration (e.g., 30 minutes) to measure the False Positive Rate on an idle machine:
+```bash
+python evaluate_baseline.py --duration 30
+```
+
+```mermaid
+graph TD
+    A[psutil Collector] -->|Raw Metrics| B[Sliding Window Normalizer]
+    B -->|Normalized Data| C[ONNX Inference Engine]
+    C -->|Scores| D[Hybrid Detection Logic]
+    B -->|Raw Metrics| D
+    D -->|Flags & Trigger Type| E[(anomaly_log.json)]
+    D -->|Audit Logs| F[(audit.log)]
+    E --> G[Flask Dashboard]
+    B --> G
+```
 
 ## Tech Stack
 

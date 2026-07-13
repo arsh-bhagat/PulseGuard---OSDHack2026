@@ -41,6 +41,30 @@ class PulseGuardCore:
         self.running = False
         self.lock = threading.Lock()
         
+        # Self test
+        self.self_test_failed = False
+        self.self_test_error = ""
+        self._run_self_test()
+        
+    def _run_self_test(self):
+        try:
+            # Create a "perfectly normal" input (means)
+            norm_metrics = self.normalize(self.stats["mean"])
+            ordered_keys = ["cpu", "ram", "disk_read", "disk_write", "net_sent", "net_recv"]
+            input_data = [[norm_metrics[k] for k in ordered_keys]]
+            input_array = np.array(input_data, dtype=np.float32)
+            input_name = self.sess.get_inputs()[0].name
+            output = self.sess.run(None, {input_name: input_array})
+            
+            score = self._extract_score(output)
+            if score is None:
+                self.self_test_failed = True
+                self.self_test_error = "Score extraction returned None"
+        except Exception as e:
+            self.self_test_failed = True
+            self.self_test_error = str(e)
+            audit_logger.error(f"Self-test failed: {e}")
+        
     def _load_stats(self):
         audit_logger.info(f"READ: stats.json")
         with open(self.stats_path, 'r') as f:
@@ -124,15 +148,68 @@ class PulseGuardCore:
                 
         return False
 
-    def log_anomaly(self, trigger_type, score, raw_metrics):
+    def get_contributing_metrics(self, norm_metrics):
+        # Calculate z-scores and return top 2
+        z_scores = []
+        for k, v in norm_metrics.items():
+            z_scores.append({"metric": k, "z_score": round(v, 2), "abs_z": abs(v)})
+        z_scores.sort(key=lambda x: x["abs_z"], reverse=True)
+        top_2 = z_scores[:2]
+        
+        result = []
+        for item in top_2:
+            direction = "elevated" if item["z_score"] > 0 else "unusually low"
+            result.append({"metric": item["metric"], "z_score": item["z_score"], "direction": direction})
+        return result
+
+    def get_severity(self, is_rule_anomaly, score, threshold=0.7):
+        if is_rule_anomaly:
+            return "HIGH"
+        diff = score - threshold
+        if diff <= 0.2:
+            return "LOW"
+        elif diff <= 0.5:
+            return "MEDIUM"
+        else:
+            return "HIGH"
+
+    def log_anomaly(self, trigger_type, score, raw_metrics, norm_metrics):
+        severity = self.get_severity(trigger_type == "rule-based-backstop", score)
+        contributing = self.get_contributing_metrics(norm_metrics)
+        
         entry = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "trigger": trigger_type,
             "score": score,
-            "metrics": raw_metrics
+            "severity": severity,
+            "metrics": raw_metrics,
+            "contributing_metrics": contributing
         }
         with open(self.log_path, 'a') as f:
             f.write(json.dumps(entry) + "\n")
+            
+    def _extract_score(self, output):
+        score = None
+        if isinstance(output, list) and len(output) > 1:
+            if isinstance(output[1], np.ndarray):
+                score = float(output[1].flatten()[0])
+            elif isinstance(output[1], list) and isinstance(output[1][0], dict):
+                score = float(output[1][0].get(1, list(output[1][0].values())[-1]))
+            else:
+                try:
+                    score = float(np.array(output[1]).flatten()[0])
+                except Exception:
+                    pass
+        elif isinstance(output, list) and len(output) == 1:
+            try:
+                score = float(np.array(output[0]).flatten()[0])
+            except Exception:
+                pass
+                
+        if score is None:
+            logging.error(f"Failed to parse ONNX output structure: {output}")
+            
+        return score
 
     def _loop(self):
         # Initialize psutil cpu percent
@@ -156,22 +233,9 @@ class PulseGuardCore:
             t1 = time.perf_counter()
             latency_ms = (t1 - t0) * 1000.0
             
-            # Extract anomaly score
-            score = 0.0
-            if isinstance(output, list) and len(output) > 1:
-                if isinstance(output[1], np.ndarray):
-                    score = float(output[1].flatten()[0])
-                elif isinstance(output[1], list) and isinstance(output[1][0], dict):
-                    # For ZipMap usually output[1] is list of dicts. We get probability of class 1.
-                    # Or if regression, just output[0]
-                    score = float(output[1][0].get(1, list(output[1][0].values())[-1]))
-                else:
-                    try:
-                        score = float(np.array(output[1]).flatten()[0])
-                    except:
-                        pass
-            elif isinstance(output, list) and len(output) == 1:
-                score = float(np.array(output[0]).flatten()[0])
+            # Extract anomaly score using hardened method
+            extracted_score = self._extract_score(output)
+            score = extracted_score if extracted_score is not None else 0.0
             
             with self.lock:
                 self.window.append(raw_metrics)
@@ -187,7 +251,7 @@ class PulseGuardCore:
                 if is_rule_anomaly or is_model_anomaly:
                     self.latest_anomaly = True
                     trigger = "rule-based-backstop" if is_rule_anomaly else "model-based"
-                    self.log_anomaly(trigger, score, raw_metrics)
+                    self.log_anomaly(trigger, score, raw_metrics, norm_metrics)
                 else:
                     self.latest_anomaly = False
 

@@ -27,8 +27,54 @@ def get_model_info():
     return jsonify({
         "size_mb": round(core.get_model_size_mb(), 2),
         "latency_ms": round(latency, 2),
-        "recent_anomalies": core.get_recent_anomalies(10)
+        "recent_anomalies": core.get_recent_anomalies(10),
+        "self_test_failed": core.self_test_failed,
+        "self_test_error": core.self_test_error
     })
+
+@app.route('/api/anomalies/dates')
+def get_anomaly_dates():
+    if not os.path.exists(core.log_path):
+        return jsonify({"dates": []})
+    dates = set()
+    try:
+        with open(core.log_path, 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    entry = json.loads(line)
+                    # timestamp is like "2026-07-10T20:21:39.123Z"
+                    date_str = entry["timestamp"].split("T")[0]
+                    dates.add(date_str)
+                except:
+                    pass
+    except:
+        pass
+    return jsonify({"dates": sorted(list(dates), reverse=True)})
+
+@app.route('/api/anomalies')
+def get_anomalies_by_date():
+    from flask import request
+    target_date = request.args.get('date')
+    if not target_date or not os.path.exists(core.log_path):
+        return jsonify({"anomalies": []})
+        
+    anomalies = []
+    try:
+        with open(core.log_path, 'r') as f:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    entry = json.loads(line)
+                    date_str = entry["timestamp"].split("T")[0]
+                    if date_str == target_date:
+                        anomalies.append(entry)
+                except:
+                    pass
+    except:
+        pass
+    # Return newest first
+    return jsonify({"anomalies": anomalies[::-1]})
 
 @app.route('/api/clear_logs', methods=['POST'])
 def clear_logs():

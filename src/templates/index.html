@@ -105,11 +105,38 @@
             background-color: #c93b3b;
         }
     </style>
+        .alert-banner {
+            background-color: #a83232;
+            color: #fff;
+            padding: 15px;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: bold;
+            display: none;
+        }
+        .date-browser {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .date-browser select {
+            background: #444;
+            color: white;
+            border: 1px solid #555;
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
 </head>
 <body>
     <h1>PulseGuard Dashboard</h1>
     
     <div class="container">
+        <div id="selfTestWarning" class="alert-banner">
+            ⚠️ <strong>Startup Self-Test Failed!</strong> <span id="selfTestErrorMsg"></span> The system is running in a degraded state.
+        </div>
+
         <div class="panel">
             <h2>Live System Metrics</h2>
             <canvas id="metricsChart"></canvas>
@@ -131,9 +158,10 @@
             <div class="panel">
                 <div class="panel-header">
                     <h2>Recent Anomalies</h2>
-                    <div>
-                        <button class="btn" onclick="clearUILogs()">Clear UI Logs</button>
-                        <button class="btn btn-danger" onclick="deleteAllLogs()">Delete All Logs</button>
+                    <div class="date-browser">
+                        <select id="dateSelect" onchange="changeDate()"></select>
+                        <button class="btn" onclick="clearUILogs()">Clear UI</button>
+                        <button class="btn btn-danger" onclick="deleteAllLogs()">Delete All</button>
                     </div>
                 </div>
                 <ul class="anomalies-list" id="anomaliesList">
@@ -144,6 +172,52 @@
     </div>
 
     <script>
+        // --- Web Audio API Siren ---
+        let audioCtx = null;
+        let oscillator = null;
+        let isSirenPlaying = false;
+        
+        function playSiren() {
+            if (isSirenPlaying) return;
+            isSirenPlaying = true;
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            
+            oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(400, audioCtx.currentTime); // Low freq
+            oscillator.frequency.linearRampToValueAtTime(800, audioCtx.currentTime + 0.5); // Sweep up
+            oscillator.frequency.linearRampToValueAtTime(400, audioCtx.currentTime + 1.0); // Sweep down
+            
+            // Loop the sweep (we do this by repeatedly recreating or just setting intervals in a real app, but for simplicity we'll just let it beep or we can modulate it)
+            // A simple modulation:
+            const lfo = audioCtx.createOscillator();
+            lfo.type = 'sine';
+            lfo.frequency.value = 2; // 2Hz siren
+            const lfoGain = audioCtx.createGain();
+            lfoGain.gain.value = 200;
+            lfo.connect(lfoGain);
+            lfoGain.connect(oscillator.frequency);
+            lfo.start();
+            
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime); // Low volume so we don't deafen the user
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+        }
+
+        function stopSiren() {
+            if (!isSirenPlaying) return;
+            isSirenPlaying = false;
+            if (oscillator) {
+                oscillator.stop();
+                oscillator.disconnect();
+                oscillator = null;
+            }
+        }
+
         const ctx = document.getElementById('metricsChart').getContext('2d');
         const MAX_POINTS = 30; // 30 readings roughly matches our window
 
@@ -158,7 +232,8 @@
                         borderColor: '#42a5f5',
                         backgroundColor: 'rgba(66, 165, 245, 0.1)',
                         tension: 0.3,
-                        pointRadius: 3
+                        pointRadius: 3,
+                        yAxisID: 'y'
                     },
                     {
                         label: 'RAM %',
@@ -166,7 +241,26 @@
                         borderColor: '#66bb6a',
                         backgroundColor: 'rgba(102, 187, 106, 0.1)',
                         tension: 0.3,
-                        pointRadius: 3
+                        pointRadius: 3,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'Net Sent (B/s)',
+                        data: [],
+                        borderColor: '#ab47bc',
+                        backgroundColor: 'rgba(171, 71, 188, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3,
+                        yAxisID: 'yNetwork'
+                    },
+                    {
+                        label: 'Net Recv (B/s)',
+                        data: [],
+                        borderColor: '#ffa726',
+                        backgroundColor: 'rgba(255, 167, 38, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3,
+                        yAxisID: 'yNetwork'
                     }
                 ]
             },
@@ -178,29 +272,59 @@
                 },
                 scales: {
                     y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
                         beginAtZero: true,
                         max: 100,
-                        grid: {
-                            color: '#333'
-                        }
+                        grid: { color: '#333' }
+                    },
+                    yNetwork: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: { drawOnChartArea: false }
                     },
                     x: {
-                        grid: {
-                            color: '#333'
-                        }
+                        grid: { color: '#333' }
                     }
                 },
                 plugins: {
-                    legend: {
-                        labels: {
-                            color: '#e0e0e0'
-                        }
-                    }
+                    legend: { labels: { color: '#e0e0e0' } }
                 }
             }
         });
 
         let hiddenBefore = 0;
+        let selectedDate = "Latest";
+
+        async function fetchDates() {
+            try {
+                const res = await fetch('/api/anomalies/dates');
+                const data = await res.json();
+                const select = document.getElementById('dateSelect');
+                const currVal = select.value;
+                select.innerHTML = '<option value="Latest">Latest</option>';
+                data.dates.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d;
+                    opt.innerText = d;
+                    select.appendChild(opt);
+                });
+                if (currVal && Array.from(select.options).some(o => o.value === currVal)) {
+                    select.value = currVal;
+                }
+            } catch (e) {
+                console.error("Failed to fetch dates", e);
+            }
+        }
+
+        function changeDate() {
+            selectedDate = document.getElementById('dateSelect').value;
+            hiddenBefore = 0; // reset ui clear filter
+            updateDashboard();
+        }
 
         function clearUILogs() {
             hiddenBefore = Date.now();
@@ -212,6 +336,8 @@
             try {
                 await fetch('/api/clear_logs', { method: 'POST' });
                 hiddenBefore = 0; // reset
+                selectedDate = "Latest";
+                await fetchDates();
                 updateDashboard();
             } catch (e) {
                 console.error("Failed to delete logs", e);
@@ -225,37 +351,48 @@
                 const dataMetrics = await resMetrics.json();
                 
                 if (dataMetrics.metrics) {
+                    if (dataMetrics.anomaly) {
+                        playSiren();
+                    } else {
+                        stopSiren();
+                    }
+
                     const timeLabel = new Date().toLocaleTimeString();
                     
                     metricsChart.data.labels.push(timeLabel);
                     metricsChart.data.datasets[0].data.push(dataMetrics.metrics.cpu);
                     metricsChart.data.datasets[1].data.push(dataMetrics.metrics.ram);
+                    metricsChart.data.datasets[2].data.push(dataMetrics.metrics.net_sent);
+                    metricsChart.data.datasets[3].data.push(dataMetrics.metrics.net_recv);
 
                     // Add red marker if anomalous
                     const pointColorCPU = dataMetrics.anomaly ? '#ff4444' : '#42a5f5';
                     const pointRadiusCPU = dataMetrics.anomaly ? 6 : 3;
                     
                     if (!metricsChart.data.datasets[0].pointBackgroundColor) {
-                        metricsChart.data.datasets[0].pointBackgroundColor = [];
-                        metricsChart.data.datasets[0].pointRadius = [];
-                        metricsChart.data.datasets[1].pointBackgroundColor = [];
-                        metricsChart.data.datasets[1].pointRadius = [];
+                        [0, 1, 2, 3].forEach(i => {
+                            metricsChart.data.datasets[i].pointBackgroundColor = [];
+                            metricsChart.data.datasets[i].pointRadius = [];
+                        });
                     }
 
                     metricsChart.data.datasets[0].pointBackgroundColor.push(pointColorCPU);
                     metricsChart.data.datasets[0].pointRadius.push(pointRadiusCPU);
                     metricsChart.data.datasets[1].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#66bb6a');
                     metricsChart.data.datasets[1].pointRadius.push(pointRadiusCPU);
+                    metricsChart.data.datasets[2].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ab47bc');
+                    metricsChart.data.datasets[2].pointRadius.push(pointRadiusCPU);
+                    metricsChart.data.datasets[3].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ffa726');
+                    metricsChart.data.datasets[3].pointRadius.push(pointRadiusCPU);
 
                     // Keep window size
                     if (metricsChart.data.labels.length > MAX_POINTS) {
                         metricsChart.data.labels.shift();
-                        metricsChart.data.datasets[0].data.shift();
-                        metricsChart.data.datasets[1].data.shift();
-                        metricsChart.data.datasets[0].pointBackgroundColor.shift();
-                        metricsChart.data.datasets[0].pointRadius.shift();
-                        metricsChart.data.datasets[1].pointBackgroundColor.shift();
-                        metricsChart.data.datasets[1].pointRadius.shift();
+                        [0, 1, 2, 3].forEach(i => {
+                            metricsChart.data.datasets[i].data.shift();
+                            metricsChart.data.datasets[i].pointBackgroundColor.shift();
+                            metricsChart.data.datasets[i].pointRadius.shift();
+                        });
                     }
 
                     metricsChart.update();
@@ -265,18 +402,33 @@
                 const resInfo = await fetch('/api/model_info');
                 const dataInfo = await resInfo.json();
                 
+                // Show self test warning
+                if (dataInfo.self_test_failed) {
+                    document.getElementById('selfTestWarning').style.display = 'block';
+                    document.getElementById('selfTestErrorMsg').innerText = `(${dataInfo.self_test_error})`;
+                } else {
+                    document.getElementById('selfTestWarning').style.display = 'none';
+                }
+
                 document.getElementById('modelSize').innerText = `${dataInfo.size_mb} MB`;
                 document.getElementById('modelLatency').innerText = `${dataInfo.latency_ms} ms`;
                 
+                // Fetch anomalies based on selected date
+                let anomaliesData = [];
+                if (selectedDate === "Latest") {
+                    anomaliesData = dataInfo.recent_anomalies || [];
+                } else {
+                    const resAnom = await fetch(`/api/anomalies?date=${selectedDate}`);
+                    const anomData = await resAnom.json();
+                    anomaliesData = anomData.anomalies || [];
+                }
+
                 const list = document.getElementById('anomaliesList');
                 list.innerHTML = '';
                 
-                let visibleAnomalies = [];
-                if (dataInfo.recent_anomalies) {
-                    visibleAnomalies = dataInfo.recent_anomalies.filter(a => {
-                        return new Date(a.timestamp).getTime() >= hiddenBefore;
-                    });
-                }
+                let visibleAnomalies = anomaliesData.filter(a => {
+                    return new Date(a.timestamp).getTime() >= hiddenBefore;
+                });
 
                 if (visibleAnomalies.length > 0) {
                     let lastDate = '';
@@ -294,15 +446,28 @@
 
                         const li = document.createElement('li');
                         const timeStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                        const isRule = a.trigger === 'rule-based-backstop';
+                        
+                        // Severity Colors
+                        let severityColor = '#ff4444';
+                        if (a.severity === 'LOW') severityColor = '#e3cc24'; // Yellow
+                        else if (a.severity === 'MEDIUM') severityColor = '#ff9800'; // Orange
+                        
+                        // Contributing metrics explanation
+                        let explanation = '';
+                        if (a.contributing_metrics && a.contributing_metrics.length > 0) {
+                            const expl = a.contributing_metrics.map(m => `${m.metric} (${m.direction})`).join(' and ');
+                            explanation = `<br><small style="color:#aaa;">Driven by: ${expl}</small>`;
+                        }
+
                         li.innerHTML = `
                             <span>
                                 <strong>${timeStr}</strong> 
                                 <br>
                                 <small style="color:#888;">CPU: ${a.metrics.cpu.toFixed(1)}%, RAM: ${a.metrics.ram.toFixed(1)}%</small>
+                                ${explanation}
                             </span>
-                            <span class="badge" style="background-color: ${isRule ? '#ff9800' : '#ff4444'}">
-                                ${isRule ? 'RULE' : 'MODEL'}
+                            <span class="badge" style="background-color: ${severityColor}">
+                                ${a.severity || 'HIGH'}
                             </span>
                         `;
                         list.appendChild(li);
@@ -316,8 +481,13 @@
             }
         }
 
+        // Initialize date options
+        fetchDates();
         // Poll every 2 seconds
-        setInterval(updateDashboard, 2000);
+        setInterval(() => {
+            fetchDates(); // keep dates up to date
+            updateDashboard();
+        }, 2000);
         updateDashboard();
     </script>
 </body>
