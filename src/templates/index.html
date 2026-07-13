@@ -104,7 +104,6 @@
         .btn-danger:hover {
             background-color: #c93b3b;
         }
-    </style>
         .alert-banner {
             background-color: #a83232;
             color: #fff;
@@ -120,12 +119,10 @@
             align-items: center;
             gap: 10px;
         }
-        .date-browser select {
-            background: #444;
-            color: white;
-            border: 1px solid #555;
-            padding: 5px;
-            border-radius: 4px;
+        .date-display {
+            font-weight: bold;
+            min-width: 100px;
+            text-align: center;
         }
     </style>
 </head>
@@ -159,8 +156,10 @@
                 <div class="panel-header">
                     <h2>Recent Anomalies</h2>
                     <div class="date-browser">
-                        <select id="dateSelect" onchange="changeDate()"></select>
-                        <button class="btn" onclick="clearUILogs()">Clear UI</button>
+                        <button class="btn" onclick="prevDate()" id="btnPrevDate">&lt;</button>
+                        <span id="currentDateDisplay" class="date-display">Latest</span>
+                        <button class="btn" onclick="nextDate()" id="btnNextDate" disabled>&gt;</button>
+                        <button class="btn" onclick="clearUILogs()" style="margin-left: 15px;">Clear UI</button>
                         <button class="btn btn-danger" onclick="deleteAllLogs()">Delete All</button>
                     </div>
                 </div>
@@ -298,32 +297,56 @@
 
         let hiddenBefore = 0;
         let selectedDate = "Latest";
+        let availableDates = [];
+        let currentDateIndex = -1; // -1 means Latest
 
         async function fetchDates() {
             try {
                 const res = await fetch('/api/anomalies/dates');
                 const data = await res.json();
-                const select = document.getElementById('dateSelect');
-                const currVal = select.value;
-                select.innerHTML = '<option value="Latest">Latest</option>';
-                data.dates.forEach(d => {
-                    const opt = document.createElement('option');
-                    opt.value = d;
-                    opt.innerText = d;
-                    select.appendChild(opt);
-                });
-                if (currVal && Array.from(select.options).some(o => o.value === currVal)) {
-                    select.value = currVal;
-                }
+                availableDates = data.dates || [];
+                availableDates.sort(); // Sorts YYYY-MM-DD ascending
+                updateDateNavigationUI();
             } catch (e) {
                 console.error("Failed to fetch dates", e);
             }
         }
 
-        function changeDate() {
-            selectedDate = document.getElementById('dateSelect').value;
+        function prevDate() {
+            if (availableDates.length === 0) return;
+            if (currentDateIndex === -1) {
+                currentDateIndex = availableDates.length - 1; // Jump to most recent date
+            } else if (currentDateIndex > 0) {
+                currentDateIndex--;
+            }
+            applyDateChange();
+        }
+
+        function nextDate() {
+            if (currentDateIndex === -1) return;
+            if (currentDateIndex < availableDates.length - 1) {
+                currentDateIndex++;
+            } else {
+                currentDateIndex = -1; // Jump back to Latest
+            }
+            applyDateChange();
+        }
+
+        function applyDateChange() {
+            if (currentDateIndex === -1) {
+                selectedDate = "Latest";
+            } else {
+                selectedDate = availableDates[currentDateIndex];
+            }
+            updateDateNavigationUI();
             hiddenBefore = 0; // reset ui clear filter
             updateDashboard();
+        }
+
+        function updateDateNavigationUI() {
+            document.getElementById('currentDateDisplay').innerText = selectedDate;
+            document.getElementById('btnPrevDate').disabled = (currentDateIndex === 0 || availableDates.length === 0);
+            document.getElementById('btnNextDate').disabled = (currentDateIndex === -1);
         }
 
         function clearUILogs() {
