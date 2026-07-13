@@ -242,24 +242,6 @@
                         tension: 0.3,
                         pointRadius: 3,
                         yAxisID: 'y'
-                    },
-                    {
-                        label: 'Net Sent (B/s)',
-                        data: [],
-                        borderColor: '#ab47bc',
-                        backgroundColor: 'rgba(171, 71, 188, 0.1)',
-                        tension: 0.3,
-                        pointRadius: 3,
-                        yAxisID: 'yNetwork'
-                    },
-                    {
-                        label: 'Net Recv (B/s)',
-                        data: [],
-                        borderColor: '#ffa726',
-                        backgroundColor: 'rgba(255, 167, 38, 0.1)',
-                        tension: 0.3,
-                        pointRadius: 3,
-                        yAxisID: 'yNetwork'
                     }
                 ]
             },
@@ -277,13 +259,6 @@
                         beginAtZero: true,
                         max: 100,
                         grid: { color: '#333' }
-                    },
-                    yNetwork: {
-                        type: 'linear',
-                        display: true,
-                        position: 'right',
-                        beginAtZero: true,
-                        grid: { drawOnChartArea: false }
                     },
                     x: {
                         grid: { color: '#333' }
@@ -385,15 +360,13 @@
                     metricsChart.data.labels.push(timeLabel);
                     metricsChart.data.datasets[0].data.push(dataMetrics.metrics.cpu);
                     metricsChart.data.datasets[1].data.push(dataMetrics.metrics.ram);
-                    metricsChart.data.datasets[2].data.push(dataMetrics.metrics.net_sent);
-                    metricsChart.data.datasets[3].data.push(dataMetrics.metrics.net_recv);
 
                     // Add red marker if anomalous
                     const pointColorCPU = dataMetrics.anomaly ? '#ff4444' : '#42a5f5';
                     const pointRadiusCPU = dataMetrics.anomaly ? 6 : 3;
                     
                     if (!metricsChart.data.datasets[0].pointBackgroundColor) {
-                        [0, 1, 2, 3].forEach(i => {
+                        [0, 1].forEach(i => {
                             metricsChart.data.datasets[i].pointBackgroundColor = [];
                             metricsChart.data.datasets[i].pointRadius = [];
                         });
@@ -403,15 +376,11 @@
                     metricsChart.data.datasets[0].pointRadius.push(pointRadiusCPU);
                     metricsChart.data.datasets[1].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#66bb6a');
                     metricsChart.data.datasets[1].pointRadius.push(pointRadiusCPU);
-                    metricsChart.data.datasets[2].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ab47bc');
-                    metricsChart.data.datasets[2].pointRadius.push(pointRadiusCPU);
-                    metricsChart.data.datasets[3].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ffa726');
-                    metricsChart.data.datasets[3].pointRadius.push(pointRadiusCPU);
 
                     // Keep window size
                     if (metricsChart.data.labels.length > MAX_POINTS) {
                         metricsChart.data.labels.shift();
-                        [0, 1, 2, 3].forEach(i => {
+                        [0, 1].forEach(i => {
                             metricsChart.data.datasets[i].data.shift();
                             metricsChart.data.datasets[i].pointBackgroundColor.shift();
                             metricsChart.data.datasets[i].pointRadius.shift();
