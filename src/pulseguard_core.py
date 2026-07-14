@@ -160,7 +160,10 @@ class PulseGuardCore:
         
         result = []
         for item in top_2:
-            direction = "elevated" if item["z_score"] > 0 else "unusually low"
+            if item["metric"] in ["net_sent", "net_recv"] and item["z_score"] > 0:
+                direction = "high activity (not flagged as anomalous)"
+            else:
+                direction = "elevated" if item["z_score"] > 0 else "unusually low"
             result.append({"metric": item["metric"], "z_score": item["z_score"], "direction": direction})
         return result
 
@@ -235,16 +238,29 @@ class PulseGuardCore:
             with self.lock:
                 monitor_net = self.monitor_network
 
-            # If network monitoring is disabled, clamp network features to 0.0 (the mean).
-            # This preserves the ONNX model's required 6-feature input shape,
-            # while ensuring network I/O has exactly 0 influence on anomaly scoring.
-            if not monitor_net:
-                norm_metrics["net_sent"] = 0.0
-                norm_metrics["net_recv"] = 0.0
-            
+            is_high_activity = False
+            if monitor_net:
+                if norm_metrics["net_sent"] > 2.0 or norm_metrics["net_recv"] > 2.0:
+                    is_high_activity = True
+
             # Prepare input for inference (shape [1, 6])
+            # We copy norm_metrics so we don't mutate the original used for logging
+            inference_metrics = norm_metrics.copy()
+
+            # If network monitoring is disabled OR if there is a positive network spike (high activity),
+            # clamp the positive network features to 0.0 (the mean).
+            # This preserves the ONNX model's required 6-feature input shape,
+            # while ensuring positive network spikes DO NOT trigger model-based anomalies.
+            # Negative (low) network spikes will still be seen by the model as potential anomalies.
+            if not monitor_net:
+                inference_metrics["net_sent"] = 0.0
+                inference_metrics["net_recv"] = 0.0
+            else:
+                if inference_metrics["net_sent"] > 0: inference_metrics["net_sent"] = 0.0
+                if inference_metrics["net_recv"] > 0: inference_metrics["net_recv"] = 0.0
+            
             ordered_keys = ["cpu", "ram", "disk_read", "disk_write", "net_sent", "net_recv"]
-            input_data = [[norm_metrics[k] for k in ordered_keys]]
+            input_data = [[inference_metrics[k] for k in ordered_keys]]
             input_array = np.array(input_data, dtype=np.float32)
             
             # Run inference and measure time
@@ -258,8 +274,6 @@ class PulseGuardCore:
             extracted_score = self._extract_score(output)
             score = extracted_score if extracted_score is not None else 0.0
             label = self._extract_label(output)
-            
-            print(f"[DEBUG] label={label} | raw_score={score:.4f} | cpu={raw_metrics['cpu']:.1f}% | ram={raw_metrics['ram']:.1f}%")
 
             with self.lock:
                 self.window.append(raw_metrics)
@@ -279,6 +293,8 @@ class PulseGuardCore:
                     self.log_anomaly(trigger, score, raw_metrics, norm_metrics)
                 else:
                     self.latest_anomaly = False
+                    if is_high_activity:
+                        self.log_anomaly("high-network-activity", score, raw_metrics, norm_metrics)
 
     def start(self):
         self.running = True

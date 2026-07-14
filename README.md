@@ -16,7 +16,7 @@ PulseGuard runs a pre-trained anomaly detection model locally, evaluating live m
 1. **Model-based detection** — An Isolation Forest model (exported to ONNX) scores readings, flagging anomalies based on native decision thresholds (e.g., current reading is an anomaly, or 3+ of the last 5 readings).
 2. **Rule-based backstop** — A simple hardcoded check (CPU or RAM > 95% for 3 consecutive readings) catches genuinely extreme values independent of the model.
 
-Anomalies are classified by **severity** (low/medium/high) and list the **top contributing metrics** via z-score. A local dashboard provides live charts, date-based anomaly browsing, and audio alerts.
+Anomalies are classified by **severity** (low/medium/high) and list the **top contributing metrics** via z-score. Network throughput spikes are handled asymmetrically—they are logged distinctly as 'High Activity' rather than full anomalies to prevent false alarms during normal large downloads. A local dashboard provides live charts, date-based anomaly browsing, and audio alerts.
 
 ## On-Device AI Usage
 

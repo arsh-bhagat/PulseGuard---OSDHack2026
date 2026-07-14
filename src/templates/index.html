@@ -487,9 +487,12 @@
                         
                         // Severity Colors
                         let severityColor = '#ff4444';
-                        if (a.severity === 'LOW') severityColor = '#e3cc24'; // Yellow
+                        if (a.trigger === 'high-network-activity') severityColor = '#607d8b'; // Blue/Grey
+                        else if (a.severity === 'LOW') severityColor = '#e3cc24'; // Yellow
                         else if (a.severity === 'MEDIUM') severityColor = '#ff9800'; // Orange
                         
+                        let badgeText = a.trigger === 'high-network-activity' ? 'High Activity' : (a.severity || 'HIGH');
+
                         // Contributing metrics explanation
                         let explanation = '';
                         if (a.contributing_metrics && a.contributing_metrics.length > 0) {
@@ -505,7 +508,7 @@
                                 ${explanation}
                             </span>
                             <span class="badge" style="background-color: ${severityColor}">
-                                ${a.severity || 'HIGH'}
+                                ${badgeText}
                             </span>
                         `;
                         list.appendChild(li);
