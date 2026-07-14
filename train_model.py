@@ -13,6 +13,16 @@ def train():
     print("Loading metrics.csv...")
     df = pd.read_csv("metrics.csv")
     
+    # disk and network metrics are cumulative counters from psutil.
+    # We must convert them to rates (bytes per second) to match the live backend.
+    # Since psutillogger logs every 1 second, the difference between rows is the rate.
+    cols_to_diff = ["disk_read", "disk_write", "net_sent", "net_recv"]
+    for col in cols_to_diff:
+        df[col] = df[col].diff()
+        
+    # Drop the first row which will have NaNs from the diff operation
+    df.dropna(inplace=True)
+    
     # Calculate stats for normalization in the backend
     stats = {
         "mean": df.mean().to_dict(),
