@@ -29,6 +29,7 @@ class PulseGuardCore:
         self.window = deque(maxlen=30) # Raw readings
         self.normalized_window = deque(maxlen=30) # Normalized readings
         self.scores = deque(maxlen=30) # Anomaly scores
+        self.labels = deque(maxlen=30) # Anomaly labels (-1 or 1)
         self.last_net = psutil.net_io_counters()
         self.last_disk = psutil.disk_io_counters()
         self.last_time = time.time()
@@ -133,16 +134,16 @@ class PulseGuardCore:
                 return True
         return False
 
-    def check_model(self, current_score, threshold=0.7):
+    def check_model(self, current_label):
         # The window is flagged as anomalous if:
-        # The MOST RECENT reading's score crosses the threshold on its own
-        if current_score >= threshold:
+        # The MOST RECENT reading's label is -1
+        if current_label == -1:
             return True
             
-        # OR 3 or more of the last 5 readings are individually anomalous
-        if len(self.scores) >= 5:
-            recent_scores = list(self.scores)[-5:]
-            anomalous_count = sum(1 for s in recent_scores if s >= threshold)
+        # OR 3 or more of the last 5 labels are -1
+        if len(self.labels) >= 5:
+            recent_labels = list(self.labels)[-5:]
+            anomalous_count = sum(1 for l in recent_labels if l == -1)
             if anomalous_count >= 3:
                 return True
                 
@@ -162,13 +163,13 @@ class PulseGuardCore:
             result.append({"metric": item["metric"], "z_score": item["z_score"], "direction": direction})
         return result
 
-    def get_severity(self, is_rule_anomaly, score, threshold=0.7):
+    def get_severity(self, is_rule_anomaly, score):
         if is_rule_anomaly:
             return "HIGH"
-        diff = score - threshold
-        if diff <= 0.2:
+        # Isolation Forest native decision function: negative means anomaly
+        if score >= -0.05:
             return "LOW"
-        elif diff <= 0.5:
+        elif score >= -0.1:
             return "MEDIUM"
         else:
             return "HIGH"
@@ -207,9 +208,18 @@ class PulseGuardCore:
                 pass
                 
         if score is None:
-            logging.error(f"Failed to parse ONNX output structure: {output}")
+            logging.error(f"Failed to parse ONNX score output structure: {output}")
             
         return score
+
+    def _extract_label(self, output):
+        label = 1 # Default to normal
+        if isinstance(output, list) and len(output) > 0:
+            try:
+                label = int(np.array(output[0]).flatten()[0])
+            except Exception:
+                logging.error(f"Failed to parse ONNX label output structure: {output}")
+        return label
 
     def _loop(self):
         # Initialize psutil cpu percent
@@ -236,17 +246,21 @@ class PulseGuardCore:
             # Extract anomaly score using hardened method
             extracted_score = self._extract_score(output)
             score = extracted_score if extracted_score is not None else 0.0
+            label = self._extract_label(output)
             
+            print(f"[DEBUG] label={label} | raw_score={score:.4f} | cpu={raw_metrics['cpu']:.1f}% | ram={raw_metrics['ram']:.1f}%")
+
             with self.lock:
                 self.window.append(raw_metrics)
                 self.normalized_window.append(norm_metrics)
                 self.scores.append(score)
+                self.labels.append(label)
                 self.latest_raw = raw_metrics
                 self.latest_latency_ms = latency_ms
                 
                 # Check for anomalies
                 is_rule_anomaly = self.check_rules()
-                is_model_anomaly = self.check_model(score)
+                is_model_anomaly = self.check_model(label)
                 
                 if is_rule_anomaly or is_model_anomaly:
                     self.latest_anomaly = True
