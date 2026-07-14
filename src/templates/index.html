@@ -400,8 +400,8 @@
                     metricsChart.data.datasets[1].data.push(dataMetrics.metrics.ram);
 
                     if (currentNetworkMonitorState) {
-                        const dlMbps = (dataMetrics.metrics.net_recv * 8 / 1000000).toFixed(2);
-                        const ulMbps = (dataMetrics.metrics.net_sent * 8 / 1000000).toFixed(2);
+                        const dlMbps = (dataMetrics.metrics.net_recv * 8 / 1000000).toFixed(3);
+                        const ulMbps = (dataMetrics.metrics.net_sent * 8 / 1000000).toFixed(3);
                         document.getElementById('networkSpeedsText').innerText = `Download: ${dlMbps} Mbps | Upload: ${ulMbps} Mbps`;
                     } else {
                         document.getElementById('networkSpeedsText').innerText = `Download: - | Upload: -`;
