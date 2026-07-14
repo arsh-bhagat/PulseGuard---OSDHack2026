@@ -1,46 +1,40 @@
 # PulseGuard 🛡️
 **Offline-first anomaly detection for critical systems**
 
-PulseGuard is a lightweight, local-first Python application that monitors live system metrics — CPU, RAM, disk I/O, and network I/O and flags anomalous behavior in real time. It runs its AI model entirely offline, with zero outbound network calls, making it suitable for air-gapped, regulated, or privacy sensitive environments where sending system data to a cloud monitoring service isn't an option.
+PulseGuard is a lightweight, local-first Python application that monitors live system metrics (CPU, RAM, disk I/O, network I/O) and flags anomalies. It runs entirely offline with zero outbound network calls, perfect for air-gapped, regulated, or privacy-sensitive environments.
 
 ---
 
 ## Problem Statement
 
-Most system monitoring and anomaly detection tools rely on cloud-based dashboards or APIs — Datadog, cloud SIEM tools, hosted APM services. That's a non-starter in environments where system telemetry can't leave the machine: banking infrastructure, defense networks, healthcare systems, or any air-gapped setup. Teams in these environments are often left with basic threshold alerts or manual log-watching, with no access to the kind of pattern-based anomaly detection that cloud tools offer.
+Cloud-based system monitoring tools (like Datadog or hosted SIEMs) cannot be used in environments where telemetry cannot leave the machine (e.g., banking, defense, healthcare). Teams in these air-gapped setups lack pattern-based anomaly detection and are stuck with manual logs or basic thresholds.
 
 ## Solution Overview
 
-PulseGuard runs a small, pre-trained anomaly detection model directly on the device being monitored. It continuously polls system metrics, evaluates them against a trained baseline of "normal" behavior for that machine, and flags anomalies using two independent mechanisms:
+PulseGuard runs a pre-trained anomaly detection model locally, evaluating live metrics against a trained baseline. It flags anomalies using two independent mechanisms:
 
-1. **Model-based detection** — an Isolation Forest model (exported to ONNX) scores each reading against learned patterns of normal system behavior, and flags a window as anomalous if the latest reading crosses a threshold, or if 3+ of the last 5 readings are individually anomalous.
-2. **Rule-based backstop** — a simple, explainable hardcoded check (CPU or RAM > 95% for 3 consecutive readings) that fires independently of the model, so genuinely extreme values are caught even if they fall outside what the model saw during training.
+1. **Model-based detection** — An Isolation Forest model (exported to ONNX) scores readings, flagging anomalies based on native decision thresholds (e.g., current reading is an anomaly, or 3+ of the last 5 readings).
+2. **Rule-based backstop** — A simple hardcoded check (CPU or RAM > 95% for 3 consecutive readings) catches genuinely extreme values independent of the model.
 
-Every flagged anomaly is also classified by **severity** (low/medium/high) and includes the **top contributing metrics** (via z-score) that drove the flag — so the tool explains *why* something was flagged, not just that it was. Everything is visible on a local dashboard, including live CPU/RAM/network charts, date-based anomaly browsing, and an audio alert on detection.
+Anomalies are classified by **severity** (low/medium/high) and list the **top contributing metrics** via z-score. A local dashboard provides live charts, date-based anomaly browsing, and audio alerts.
 
 ## On-Device AI Usage
 
-- **Model**: Isolation Forest, trained on system metrics (CPU%, RAM%, disk read/write rate, network sent/recv rate) collected from a real machine over ~2 hours of normal use.
-- **Format**: Exported to ONNX (`.onnx`) via `skl2onnx`.
-- **Runtime**: [ONNX Runtime](https://onnxruntime.ai/) with `CPUExecutionProvider` — no GPU required.
-- **Where it runs**: Entirely on the local machine being monitored. Inference happens in-process, on every polling cycle, with no network call involved. A startup self-test verifies the model can be loaded and parsed correctly before the monitoring loop begins.
-- **Why local**: The core anomaly detection can never depend on network access, that's the entire point. If the device is offline, air-gapped, or the network is down, PulseGuard keeps working exactly the same.
+- **Model**: Isolation Forest, trained locally on ~2 hours of normal system usage.
+- **Format**: Exported to `.onnx` via `skl2onnx`.
+- **Runtime**: ONNX Runtime (`CPUExecutionProvider`) — runs in-process with no network calls and no GPU required.
+- **Offline-First**: Fully functional without network access. A startup self-test verifies model health.
 
 ## Tech Stack
 
-| Layer | Tool |
-|---|---|
-| Metric collection | `psutil` |
-| Model training | `scikit-learn` (Isolation Forest) |
-| Model export | `skl2onnx` |
-| Local inference | `onnxruntime` (CPU) |
-| Backend / API | `Flask`, bound strictly to `127.0.0.1` |
-| Frontend | HTML + Chart.js (bundled locally, no CDN), Web Audio API for alert sound |
-| Audit logging | Python `logging`, local `audit.log` |
+- **Metric collection**: `psutil`
+- **Model training**: `scikit-learn` (Isolation Forest)
+- **Model inference**: `onnxruntime` (CPU)
+- **Backend**: `Flask` (bound to `127.0.0.1`)
+- **Frontend**: HTML + Chart.js, Web Audio API
+- **Logging**: Python `logging`, local `audit.log`
 
-No cloud services are used anywhere in this project — model training was done locally/in a notebook as a one-time offline step, and the exported model file is committed as a static artifact.
-
-**Note on `psutillogger.py`:** this is the one-time data collection script used to build `metrics.csv`, the training data behind `anomaly_detector.onnx` and `stats.json`. It's not part of the live monitoring pipeline — it's included in the repo for transparency/reproducibility, so anyone can see exactly how the training data was generated.
+*(Note: `psutillogger.py` is included for transparency to show how training data was collected. It is not part of live monitoring.)*
 
 ## Setup Instructions
 
@@ -49,64 +43,26 @@ No cloud services are used anywhere in this project — model training was done 
 ```bash
 pip install onnxruntime psutil flask
 ```
-
-Clone the repository and make sure `anomaly_detector.onnx` and `stats.json` are present in the project root (they're committed to this repo).
+*(Ensure `anomaly_detector.onnx` and `stats.json` are present in the project root.)*
 
 ## Usage Instructions
 
-**1. Start PulseGuard:**
-```bash
-python src/app.py
-```
-This starts both the background metrics/inference loop and the local dashboard server.
-
-**2. Open the dashboard:**
-Navigate to [http://127.0.0.1:5000](http://127.0.0.1:5000) in your browser.
-
-**3. Trigger a demo anomaly (optional):**
-In a separate terminal:
-```bash
-python stress_test.py
-```
-This spikes CPU usage across all cores, which will trigger the rule-based backstop and appear on the dashboard within a couple of polling cycles, complete with severity, contributing metrics, and an audio alert. Press `Ctrl+C` to stop the stress test.
-
-**4. Check the audit trail:**
-`audit.log` records every read of the model and stats files, and `anomaly_log.json` records every detected anomaly with a timestamp, trigger type, score, severity, and contributing metrics.
-
-**5. Measure the false-positive rate (optional):**
-```bash
-python evaluate_baseline.py --duration 30
-```
-Runs the detection pipeline passively for the given duration (minutes) on an otherwise idle/normal machine and reports total readings evaluated, anomalies flagged, and false-positive rate — useful for validating the model's reliability on your own hardware.
+1. **Start PulseGuard:** `python src/app.py`
+2. **Open Dashboard:** Navigate to [http://127.0.0.1:5000](http://127.0.0.1:5000)
+3. **Trigger a Demo:** Run `python stress_test.py` to spike CPU usage and trigger an alert.
+4. **Audit Trail:** Check `audit.log` for system reads, and `anomaly_log.json` for flagged anomalies.
+5. **Measure False-Positives:** Run `python evaluate_baseline.py --duration 30` to test the baseline accuracy passively on your hardware.
 
 ## Training on Your Own Machine (Optional)
 
-PulseGuard ships pre-trained on the author's machine — you can run it as-is with no setup beyond the steps above. However, since the model's baseline reflects one specific machine's "normal" behavior (see Limitations below), detection accuracy will be more meaningful if you retrain it on your own system. This is optional, not required to try the tool.
+PulseGuard ships with a pre-trained model. To improve accuracy for your specific hardware, you can retrain it:
 
-**1. Collect your own baseline data:**
-```bash
-python psutillogger.py
-```
-Let this run in the background while you use your machine normally — browsing, coding, whatever your typical workload looks like. **Let it run for at least 15 minutes, ideally 30+ minutes**, so the model sees a reasonably representative slice of normal behavior rather than a narrow snapshot. Stop it with `Ctrl+C` when done — this produces a fresh `metrics.csv`.
-
-> Note: `psutillogger.py` overwrites `metrics.csv` each time it's run (not append mode), so a single run gives you a clean dataset rather than one mixed with old data.
-
-**2. Retrain and export the model:**
-The training step (Isolation Forest fit + ONNX export) was done in a Colab notebook, not as a local script in this repo. Upload your new `metrics.csv` to the same notebook flow used to produce the original model, run it through, and download the resulting `anomaly_detector.onnx` and `stats.json`.
-
-**3. Replace the files:**
-Drop your new `anomaly_detector.onnx` and `stats.json` into the project root, replacing the originals. PulseGuard will pick them up automatically on the next run — no code changes needed.
-
-If you skip this section entirely, PulseGuard still runs fine — it'll just be evaluating your machine's metrics against the author's baseline rather than your own, which may produce less accurate (or more false-positive-prone) results.
-
-## Demo Video
-
-<!-- To be added: link to a 2–5 minute walkthrough showing the dashboard, a live-triggered anomaly via stress_test.py, and a run with network access disabled. -->
-*Coming soon.*
+1. **Collect Data:** Run `python psutillogger.py` for 15-30+ minutes while using your machine normally to generate a new `metrics.csv`.
+2. **Retrain:** Use the original Colab notebook flow with your new `metrics.csv` to export a new `anomaly_detector.onnx` and `stats.json`.
+3. **Replace Files:** Drop the new `.onnx` and `.json` files into the project root. PulseGuard will use them automatically.
 
 ## Screenshots
 
-<!-- To be added: dashboard during normal operation, dashboard showing a flagged anomaly, and the anomaly_log.json / audit.log output. -->
 *Coming soon.*
 
 ## License
@@ -115,8 +71,8 @@ MIT License — see [LICENSE](./LICENSE) for details.
 
 ## Known Limitations & Future Scope
 
-- The model's baseline is intentionally trained on a single machine's normal usage pattern, not pooled across multiple devices. This is a deliberate design choice, not an oversight — "normal" CPU/RAM/I/O behavior varies significantly between machines (hardware, OS, workload), so merging data from a different device would blur the baseline rather than improve it. Each deployment of PulseGuard is meant to be trained on the specific machine it will monitor. Retraining on a new machine takes only a few minutes using the included `psutillogger.py` script.
-- Currently supports a fixed set of six metrics (CPU, RAM, disk read/write, network sent/recv). Extending to additional metrics (per-process usage, temperature, GPU load) is a natural next step.
-- No persistent metric history is stored beyond the in-memory sliding window and the anomaly log — a longer-term local time-series store could enable trend analysis, not just point-in-time flagging.
-- Currently runs as a single-machine monitor. A lightweight local-network mode for monitoring a small cluster of air-gapped machines (still without any external cloud dependency) is a possible extension.
+- **Machine-Specific Baseline**: The model is intentionally trained on a single machine's normal usage. Merging data across different machines blurs the baseline. Retrain per device for best results.
+- **Metrics**: Currently supports CPU, RAM, Disk, and Network I/O. Future extensions could add per-process usage, temperature, or GPU load.
+- **Storage**: Only keeps a short in-memory sliding window and an anomaly log. A persistent time-series store could enable trend analysis.
+- **Network Mode**: A lightweight, offline local-network mode for monitoring a small air-gapped cluster is a possible future feature.
 
