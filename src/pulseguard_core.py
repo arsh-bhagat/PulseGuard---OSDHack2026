@@ -180,7 +180,7 @@ class PulseGuardCore:
         contributing = self.get_contributing_metrics(norm_metrics)
         
         entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now().astimezone().isoformat(),
             "trigger": trigger_type,
             "score": score,
             "severity": severity,
