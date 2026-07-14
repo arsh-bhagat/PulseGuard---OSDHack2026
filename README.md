@@ -72,7 +72,7 @@ MIT License — see [LICENSE](./LICENSE) for details.
 ## Known Limitations & Future Scope
 
 - **Machine-Specific Baseline**: The model is intentionally trained on a single machine's normal usage. Merging data across different machines blurs the baseline. Retrain per device for best results.
-- **Metrics**: Currently supports CPU, RAM, Disk, and Network I/O. Future extensions could add per-process usage, temperature, or GPU load.
+- **Metrics**: Currently supports CPU, RAM, Disk, and Network I/O (measured as local NIC throughput strictly for anomaly detection, with a UI toggle to disable it). Future extensions could add per-process usage, temperature, or GPU load.
 - **Storage**: Only keeps a short in-memory sliding window and an anomaly log. A persistent time-series store could enable trend analysis.
 - **Network Mode**: A lightweight, offline local-network mode for monitoring a small air-gapped cluster is a possible future feature.
 

@@ -41,6 +41,7 @@ class PulseGuardCore:
         
         self.running = False
         self.lock = threading.Lock()
+        self.monitor_network = True # Toggle for network monitoring
         
         # Self test
         self.self_test_failed = False
@@ -230,6 +231,16 @@ class PulseGuardCore:
             
             raw_metrics = self.collect_metrics()
             norm_metrics = self.normalize(raw_metrics)
+            
+            with self.lock:
+                monitor_net = self.monitor_network
+
+            # If network monitoring is disabled, clamp network features to 0.0 (the mean).
+            # This preserves the ONNX model's required 6-feature input shape,
+            # while ensuring network I/O has exactly 0 influence on anomaly scoring.
+            if not monitor_net:
+                norm_metrics["net_sent"] = 0.0
+                norm_metrics["net_recv"] = 0.0
             
             # Prepare input for inference (shape [1, 6])
             ordered_keys = ["cpu", "ram", "disk_read", "disk_write", "net_sent", "net_recv"]

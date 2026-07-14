@@ -135,7 +135,18 @@
         </div>
 
         <div class="panel">
-            <h2>Live System Metrics</h2>
+            <div class="panel-header">
+                <h2>Live System Metrics</h2>
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <label style="cursor: pointer; display: flex; align-items: center; gap: 5px;">
+                        <input type="checkbox" id="networkToggle" checked onchange="toggleNetwork(this.checked)">
+                        Monitor Network I/O
+                    </label>
+                </div>
+            </div>
+            <p style="font-size: 0.85em; color: #888; margin-top: -10px; margin-bottom: 15px;">
+                <em>Network monitoring reads local NIC throughput only, for anomaly detection — PulseGuard itself makes no outbound network calls, regardless of this setting.</em>
+            </p>
             <canvas id="metricsChart"></canvas>
         </div>
 
@@ -246,6 +257,24 @@
                         tension: 0.3,
                         pointRadius: 3,
                         yAxisID: 'y'
+                    },
+                    {
+                        label: 'Net Sent (B/s)',
+                        data: [],
+                        borderColor: '#ab47bc',
+                        backgroundColor: 'rgba(171, 71, 188, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3,
+                        yAxisID: 'yNetwork'
+                    },
+                    {
+                        label: 'Net Recv (B/s)',
+                        data: [],
+                        borderColor: '#ffa726',
+                        backgroundColor: 'rgba(255, 167, 38, 0.1)',
+                        tension: 0.3,
+                        pointRadius: 3,
+                        yAxisID: 'yNetwork'
                     }
                 ]
             },
@@ -264,6 +293,13 @@
                         max: 100,
                         grid: { color: '#333' }
                     },
+                    yNetwork: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        beginAtZero: true,
+                        grid: { drawOnChartArea: false }
+                    },
                     x: {
                         grid: { color: '#333' }
                     }
@@ -278,6 +314,20 @@
         let selectedDate = "Latest";
         let availableDates = [];
         let currentDateIndex = -1; // -1 means Latest
+        let currentNetworkMonitorState = true;
+
+        async function toggleNetwork(enabled) {
+            try {
+                await fetch('/api/settings/network-monitor', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: enabled })
+                });
+                currentNetworkMonitorState = enabled;
+            } catch (e) {
+                console.error("Failed to toggle network monitoring", e);
+            }
+        }
 
         async function fetchDates() {
             try {
@@ -361,16 +411,24 @@
 
                     const timeLabel = new Date().toLocaleTimeString();
                     
+                    // Sync toggle UI with backend state
+                    if (dataMetrics.monitor_network !== undefined) {
+                        currentNetworkMonitorState = dataMetrics.monitor_network;
+                        document.getElementById('networkToggle').checked = currentNetworkMonitorState;
+                    }
+                    
                     metricsChart.data.labels.push(timeLabel);
                     metricsChart.data.datasets[0].data.push(dataMetrics.metrics.cpu);
                     metricsChart.data.datasets[1].data.push(dataMetrics.metrics.ram);
+                    metricsChart.data.datasets[2].data.push(dataMetrics.metrics.net_sent);
+                    metricsChart.data.datasets[3].data.push(dataMetrics.metrics.net_recv);
 
                     // Add red marker if anomalous
                     const pointColorCPU = dataMetrics.anomaly ? '#ff4444' : '#42a5f5';
                     const pointRadiusCPU = dataMetrics.anomaly ? 6 : 3;
                     
                     if (!metricsChart.data.datasets[0].pointBackgroundColor) {
-                        [0, 1].forEach(i => {
+                        [0, 1, 2, 3].forEach(i => {
                             metricsChart.data.datasets[i].pointBackgroundColor = [];
                             metricsChart.data.datasets[i].pointRadius = [];
                         });
@@ -380,16 +438,24 @@
                     metricsChart.data.datasets[0].pointRadius.push(pointRadiusCPU);
                     metricsChart.data.datasets[1].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#66bb6a');
                     metricsChart.data.datasets[1].pointRadius.push(pointRadiusCPU);
+                    metricsChart.data.datasets[2].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ab47bc');
+                    metricsChart.data.datasets[2].pointRadius.push(pointRadiusCPU);
+                    metricsChart.data.datasets[3].pointBackgroundColor.push(dataMetrics.anomaly ? '#ff4444' : '#ffa726');
+                    metricsChart.data.datasets[3].pointRadius.push(pointRadiusCPU);
 
                     // Keep window size
                     if (metricsChart.data.labels.length > MAX_POINTS) {
                         metricsChart.data.labels.shift();
-                        [0, 1].forEach(i => {
+                        [0, 1, 2, 3].forEach(i => {
                             metricsChart.data.datasets[i].data.shift();
                             metricsChart.data.datasets[i].pointBackgroundColor.shift();
                             metricsChart.data.datasets[i].pointRadius.shift();
                         });
                     }
+                    
+                    // Visually hide network stats if disabled
+                    metricsChart.data.datasets[2].hidden = !currentNetworkMonitorState;
+                    metricsChart.data.datasets[3].hidden = !currentNetworkMonitorState;
 
                     metricsChart.update();
                 }

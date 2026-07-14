@@ -17,7 +17,8 @@ def get_metrics():
             return jsonify({})
         return jsonify({
             "metrics": core.latest_raw,
-            "anomaly": core.latest_anomaly
+            "anomaly": core.latest_anomaly,
+            "monitor_network": core.monitor_network
         })
 
 @app.route('/api/model_info')
@@ -87,6 +88,15 @@ def clear_logs():
         # Empty the JSON log file
         open(core.log_path, 'w').close()
     return jsonify({"status": "ok"})
+
+@app.route('/api/settings/network-monitor', methods=['POST'])
+def toggle_network_monitor():
+    from flask import request
+    data = request.json or {}
+    enabled = data.get('enabled', True)
+    with core.lock:
+        core.monitor_network = bool(enabled)
+    return jsonify({"status": "ok", "monitor_network": core.monitor_network})
 
 if __name__ == '__main__':
     # Start the core background loop
