@@ -58,8 +58,8 @@ pip install onnxruntime psutil flask
 PulseGuard ships with a pre-trained model. To improve accuracy for your specific hardware, you can retrain it:
 
 1. **Collect Data:** Run `python psutillogger.py` for 15-30+ minutes while using your machine normally to generate a new `metrics.csv`.
-2. **Retrain:** Use the original Colab notebook flow with your new `metrics.csv` to export a new `anomaly_detector.onnx` and `stats.json`.
-3. **Replace Files:** Drop the new `.onnx` and `.json` files into the project root. PulseGuard will use them automatically.
+2. **Retrain:** Run `python train_model.py` (Requires `pip install scikit-learn pandas skl2onnx`). This script automatically normalizes your data, trains the model, and exports the new `anomaly_detector.onnx` and `stats.json` directly into your folder.
+3. **Restart:** Restart PulseGuard and it will automatically use your new, hardware-specific baseline!
 
 ## Screenshots
 
