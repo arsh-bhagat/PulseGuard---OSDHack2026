@@ -1,6 +1,7 @@
 from flask import Flask, render_template, jsonify
 from pulseguard_core import PulseGuardCore
 import os
+import json
 
 app = Flask(__name__)
 core = PulseGuardCore()
