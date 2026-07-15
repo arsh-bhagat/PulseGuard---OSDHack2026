@@ -63,7 +63,12 @@ PulseGuard ships with a pre-trained model. To improve accuracy for your specific
 
 ## Screenshots
 
-*Coming soon.*
+<div align="center">
+  <img src="assets/dashboard_metrics.png" width="48%" alt="Live System Metrics Dashboard" />
+  <img src="assets/dashboard_anomalies.png" width="48%" alt="Anomaly Logs and Model Info" />
+  <br>
+  <sub><em>Left: Real-time telemetry monitoring. Right: Model latency and categorized anomaly audit trail.</em></sub>
+</div>
 
 ## License
 
