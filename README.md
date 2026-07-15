@@ -70,6 +70,14 @@ PulseGuard ships with a pre-trained model. To improve accuracy for your specific
   <sub><em>Left: Real-time telemetry monitoring. Right: Model latency and categorized anomaly audit trail.</em></sub>
 </div>
 
+<br>
+
+<div align="center">
+  <img src="assets/dashboard_high_activity.png" width="48%" alt="High Activity Network Handling" />
+  <br>
+  <sub><em>Smart asymmetry: Massive network downloads are explicitly isolated and logged as "High Activity" to prevent false alarms without blinding the model to connection drops.</em></sub>
+</div>
+
 ## License
 
 MIT License — see [LICENSE](./LICENSE) for details.
